@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Product Health Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:#0f1117; --surface:#181c27; --surface2:#1e2435; --border:#2a3044;
+      --accent:#4f8ef7; --accent-dim:rgba(79,142,247,0.12);
+      --green:#2ecc71; --yellow:#f39c12; --red:#e74c3c;
+      --text:#e8eaf0; --muted:#7a84a0;
+      --font:'Inter',system-ui,sans-serif; --mono:'JetBrains Mono',monospace;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh}
+
+    header{background:var(--surface);border-bottom:1px solid var(--border);padding:16px 32px;display:flex;align-items:center;gap:14px}
+    .logo{width:36px;height:36px;background:var(--accent);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px}
+    header h1{font-size:17px;font-weight:700}
+    header p{font-size:11px;color:var(--muted);margin-top:2px}
+
+    main{max-width:1200px;margin:0 auto;padding:28px 24px}
+
+    /* ── Tabs ── */
+    .tabs{display:flex;gap:4px;margin-bottom:24px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:5px;width:fit-content}
+    .tab{padding:8px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--muted);transition:all .15s}
+    .tab.active{background:var(--accent);color:#fff}
+
+    /* ── Panels ── */
+    .panel{display:none}.panel.active{display:block}
+
+    /* ── Card ── */
+    .card-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;margin-bottom:22px}
+    .card-box h2{font-size:14px;font-weight:700;margin-bottom:16px;color:var(--text)}
+    .field-row{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:end;margin-bottom:14px}
+    @media(max-width:640px){.field-row{grid-template-columns:1fr}}
+    label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:6px}
+    input[type=text],input[type=number],textarea{
+      width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;
+      color:var(--text);font-family:var(--mono);font-size:13px;padding:10px 12px;
+      outline:none;transition:border-color .2s
+    }
+    input:focus,textarea:focus{border-color:var(--accent)}
+    textarea{height:130px;resize:vertical}
+    .mini-row{display:flex;gap:10px}
+    .mini-row>div{flex:1}
+
+    button{padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:opacity .2s,transform .1s}
+    button:active{transform:scale(.97)}
+    .btn-primary{background:var(--accent);color:#fff}
+    .btn-primary:disabled{opacity:.45;cursor:not-allowed}
+    .btn-secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+    .btn-danger{background:rgba(231,76,60,.15);color:var(--red);border:1px solid rgba(231,76,60,.25)}
+
+    /* ── Discovered products list ── */
+    .discovered-box{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-top:14px}
+    .discovered-box .disc-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+    .discovered-box .disc-header span{font-size:13px;font-weight:600}
+    .url-list{max-height:180px;overflow-y:auto;font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.8}
+    .url-list a{color:var(--accent);text-decoration:none}
+    .url-list a:hover{text-decoration:underline}
+
+    /* ── Log ── */
+    .log-box{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 14px;max-height:130px;overflow-y:auto;font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.9;margin-top:10px}
+
+    /* ── Progress ── */
+    .progress-wrap{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:26px;text-align:center;margin-bottom:22px;display:none}
+    .progress-bar-bg{background:var(--bg);border-radius:8px;height:8px;margin:14px 0 8px;overflow:hidden}
+    .progress-bar-fill{height:100%;background:var(--accent);border-radius:8px;transition:width .35s}
+    .progress-lbl{font-size:12px;color:var(--muted)}
+
+    /* ── Summary cards ── */
+    .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:22px;display:none}
+    .scard{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center}
+    .scard .num{font-size:28px;font-weight:800;line-height:1;margin-bottom:4px}
+    .scard .lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px}
+    .scard.c-blue .num{color:var(--accent)}.scard.c-green .num{color:var(--green)}
+    .scard.c-yellow .num{color:var(--yellow)}.scard.c-red .num{color:var(--red)}
+
+    /* ── Filter ── */
+    .filter-bar{display:flex;gap:7px;margin-bottom:14px;flex-wrap:wrap}
+    .filter-btn{padding:5px 13px;border-radius:20px;font-size:11px;font-weight:600;background:var(--surface2);border:1px solid var(--border);color:var(--muted);cursor:pointer;transition:all .15s}
+    .filter-btn.active{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
+
+    /* ── Table ── */
+    .table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+    table{width:100%;border-collapse:collapse}
+    thead tr{background:var(--surface2)}
+    th{padding:11px 14px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);text-align:left;white-space:nowrap}
+    td{padding:12px 14px;font-size:12px;border-top:1px solid var(--border);vertical-align:middle}
+    tr:hover td{background:var(--surface2)}
+    .url-cell{max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .url-cell a{color:var(--accent);text-decoration:none;font-family:var(--mono);font-size:11px}
+    .url-cell a:hover{text-decoration:underline}
+    .badge{display:inline-flex;align-items:center;padding:3px 9px;border-radius:20px;font-size:10px;font-weight:600;white-space:nowrap}
+    .badge-ok{background:rgba(46,204,113,.12);color:var(--green)}
+    .badge-issues{background:rgba(243,156,18,.12);color:var(--yellow)}
+    .badge-error{background:rgba(231,76,60,.12);color:var(--red)}
+    .issue-tag{display:inline-block;background:rgba(231,76,60,.1);color:var(--red);border:1px solid rgba(231,76,60,.2);border-radius:4px;padding:1px 6px;font-size:10px;margin:2px 2px 2px 0}
+    .img-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px;vertical-align:middle}
+    .empty{text-align:center;padding:50px 20px;color:var(--muted)}
+    .empty .icon{font-size:36px;margin-bottom:10px}
+
+    /* ── step badge ── */
+    .step-badge{display:inline-block;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;font-size:11px;font-weight:700;text-align:center;line-height:22px;margin-right:8px}
+
+    .hint{font-size:11px;color:var(--muted)}
+    .pill{display:inline-block;background:var(--accent-dim);color:var(--accent);border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600}
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🔍</div>
+  <div>
+    <h1>Product Health Monitor</h1>
+    <p>Auto-crawl categories · detect missing images, prices & content · export CSV</p>
+  </div>
+</header>
+
+<main>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('category',this)">📂 Category Crawl</button>
+    <button class="tab" onclick="switchTab('manual',this)">📋 Manual URLs</button>
+  </div>
+
+  <!-- ══════════════ CATEGORY TAB ══════════════ -->
+  <div class="panel active" id="panel-category">
+
+    <!-- Step 1: Discover -->
+    <div class="card-box">
+      <h2><span class="step-badge">1</span>Discover Products from Category</h2>
+      <div style="margin-bottom:12px">
+        <label>Category URL</label>
+        <input type="text" id="catUrl" placeholder="https://yourstore.com/womens/new-in/clothing?sz=48" style="font-size:13px"/>
+      </div>
+      <div class="mini-row" style="margin-bottom:14px">
+        <div>
+          <label>Page size (sz=)</label>
+          <input type="number" id="pageSize" value="48" min="1" max="200"/>
+        </div>
+        <div>
+          <label>Max pages to crawl</label>
+          <input type="number" id="maxPages" value="20" min="1" max="50"/>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <button class="btn-primary" id="discoverBtn" onclick="discoverProducts()">🔎 Discover Products</button>
+        <span class="hint" id="discoverHint"></span>
+      </div>
+
+      <!-- Crawler log -->
+      <div id="logWrap" style="display:none">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;margin-top:16px;margin-bottom:6px">Crawl Log</div>
+        <div class="log-box" id="crawlLog"></div>
+      </div>
+
+      <!-- Discovered list -->
+      <div class="discovered-box" id="discoveredBox" style="display:none">
+        <div class="disc-header">
+          <span>Discovered <span class="pill" id="discCount">0</span> products</span>
+          <div style="display:flex;gap:8px">
+            <button class="btn-secondary" style="padding:6px 12px;font-size:11px" onclick="addMoreCategory()">+ Add another category</button>
+            <button class="btn-danger" style="padding:6px 12px;font-size:11px" onclick="clearDiscovered()">✕ Clear</button>
+          </div>
+        </div>
+        <div class="url-list" id="discoveredList"></div>
+      </div>
+    </div>
+
+    <!-- Step 2: Scan -->
+    <div class="card-box" id="scanReadyBox" style="display:none">
+      <h2><span class="step-badge">2</span>Scan Discovered Products</h2>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+        Ready to scan <strong id="scanCount" style="color:var(--text)">0</strong> products for missing images, prices, and content issues.
+      </p>
+      <button class="btn-primary" id="scanBtn" onclick="startScan('category')">▶ Start Health Scan</button>
+    </div>
+  </div>
+
+  <!-- ══════════════ MANUAL TAB ══════════════ -->
+  <div class="panel" id="panel-manual">
+    <div class="card-box">
+      <h2>Paste Product URLs</h2>
+      <label>One URL per line (max 500)</label>
+      <textarea id="manualUrls" placeholder="https://yourstore.com/product/blue-sneakers&#10;https://yourstore.com/product/red-jacket&#10;https://yourstore.com/product/black-watch"></textarea>
+      <div style="display:flex;gap:10px;margin-top:12px;align-items:center">
+        <button class="btn-primary" id="manualScanBtn" onclick="startScan('manual')">▶ Scan Products</button>
+        <span class="hint" id="manualCount"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ Progress ══ -->
+  <div class="progress-wrap" id="progressWrap">
+    <div style="font-size:15px;font-weight:600" id="progressTitle">Scanning products…</div>
+    <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill" style="width:0%"></div></div>
+    <div class="progress-lbl" id="progressLbl">Starting…</div>
+  </div>
+
+  <!-- ══ Summary ══ -->
+  <div class="summary" id="summaryCards">
+    <div class="scard c-blue"><div class="num" id="sTotal">0</div><div class="lbl">Total Scanned</div></div>
+    <div class="scard c-green"><div class="num" id="sOk">0</div><div class="lbl">All Good</div></div>
+    <div class="scard c-yellow"><div class="num" id="sIssues">0</div><div class="lbl">Has Issues</div></div>
+    <div class="scard c-red"><div class="num" id="sErrors">0</div><div class="lbl">Errors</div></div>
+    <div class="scard c-red"><div class="num" id="sMissingPrice">0</div><div class="lbl">No Price at All</div></div>
+    <div class="scard c-red"><div class="num" id="sMissingSalePrice">0</div><div class="lbl">Missing Sale Price</div></div>
+    <div class="scard c-yellow"><div class="num" id="sMissingOrigPrice">0</div><div class="lbl">Missing Original Price</div></div>
+    <div class="scard c-red"><div class="num" id="sMissingImg">0</div><div class="lbl">No Images</div></div>
+    <div class="scard c-yellow"><div class="num" id="sBrokenImg">0</div><div class="lbl">Broken Images</div></div>
+    <div class="scard c-yellow"><div class="num" id="sMissingDesc">0</div><div class="lbl">No Description</div></div>
+  </div>
+
+  <!-- ══ Results ══ -->
+  <div id="resultsSection" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
+      <div class="filter-bar" style="margin-bottom:0">
+        <button class="filter-btn active" onclick="setFilter('all',this)">All</button>
+        <button class="filter-btn" onclick="setFilter('issues',this)">⚠ Has Issues</button>
+        <button class="filter-btn" onclick="setFilter('ok',this)">✓ Healthy</button>
+        <button class="filter-btn" onclick="setFilter('missing_price',this)">No Price</button>
+        <button class="filter-btn" onclick="setFilter('missing_sale',this)">Missing Sale Price</button>
+        <button class="filter-btn" onclick="setFilter('missing_orig',this)">Missing Original Price</button>
+        <button class="filter-btn" onclick="setFilter('missing_images',this)">No Images</button>
+        <button class="filter-btn" onclick="setFilter('broken_images',this)">Broken Images</button>
+        <button class="filter-btn" onclick="setFilter('error',this)">Errors</button>
+      </div>
+      <button class="btn-secondary" id="exportBtn" onclick="exportCSV()" style="display:none">⬇ Export CSV</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>#</th><th>Product URL</th><th>Title</th>
+          <th>Sale Price</th><th>Original Price</th><th>Saving</th><th>Images</th><th>Issues</th><th>Status</th>
+        </tr></thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+      <div class="empty" id="emptyState" style="display:none">
+        <div class="icon">🎉</div>
+        <p>No products match this filter.</p>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+let allResults = [];
+let discoveredUrls = [];
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('panel-' + name).classList.add('active');
+}
+
+// ── Manual count update ───────────────────────────────────────────────────────
+document.getElementById('manualUrls').addEventListener('input', () => {
+  const n = document.getElementById('manualUrls').value.split('\n').filter(u=>u.trim()).length;
+  document.getElementById('manualCount').textContent = n ? `${n} URL${n>1?'s':''} ready` : '';
+});
+
+// ── Category: Discover ────────────────────────────────────────────────────────
+async function discoverProducts() {
+  const url = document.getElementById('catUrl').value.trim();
+  if (!url) return alert('Please enter a category URL.');
+  const pageSize = parseInt(document.getElementById('pageSize').value) || 48;
+  const maxPages = parseInt(document.getElementById('maxPages').value) || 20;
+
+  const btn = document.getElementById('discoverBtn');
+  btn.disabled = true; btn.textContent = '⏳ Crawling…';
+  document.getElementById('logWrap').style.display = 'block';
+  document.getElementById('crawlLog').textContent = 'Starting crawl…';
+  document.getElementById('discoverHint').textContent = '';
+
+  try {
+    const resp = await fetch('/discover', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ category_url: url, page_size: pageSize, max_pages: maxPages })
+    });
+    const data = await resp.json();
+    if (data.error) { alert(data.error); return; }
+
+    // show log
+    document.getElementById('crawlLog').textContent = (data.logs || []).join('\n');
+
+    // merge with any existing discovered
+    const newUrls = data.product_urls.filter(u => !discoveredUrls.includes(u));
+    discoveredUrls = [...discoveredUrls, ...newUrls];
+    renderDiscovered();
+
+    document.getElementById('discoverHint').textContent =
+      `+${newUrls.length} new (${discoveredUrls.length} total)`;
+
+  } catch(e) {
+    alert('Discovery failed: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '🔎 Discover Products';
+  }
+}
+
+function addMoreCategory() {
+  document.getElementById('catUrl').value = '';
+  document.getElementById('catUrl').focus();
+}
+
+function clearDiscovered() {
+  discoveredUrls = [];
+  renderDiscovered();
+}
+
+function renderDiscovered() {
+  const box = document.getElementById('discoveredBox');
+  const scanBox = document.getElementById('scanReadyBox');
+  document.getElementById('discCount').textContent = discoveredUrls.length;
+  document.getElementById('scanCount').textContent = discoveredUrls.length;
+
+  if (discoveredUrls.length === 0) {
+    box.style.display = 'none';
+    scanBox.style.display = 'none';
+    return;
+  }
+  box.style.display = 'block';
+  scanBox.style.display = 'block';
+
+  document.getElementById('discoveredList').innerHTML =
+    discoveredUrls.map(u => `<div><a href="${esc(u)}" target="_blank">${esc(u)}</a></div>`).join('');
+}
+
+// ── Scan ──────────────────────────────────────────────────────────────────────
+async function startScan(source) {
+  let urls;
+  if (source === 'category') {
+    if (!discoveredUrls.length) return alert('Discover products first.');
+    urls = discoveredUrls;
+  } else {
+    urls = document.getElementById('manualUrls').value.split('\n').map(u=>u.trim()).filter(Boolean);
+    if (!urls.length) return alert('Please enter at least one URL.');
+  }
+
+  // disable buttons
+  document.getElementById('scanBtn').disabled = true;
+  document.getElementById('manualScanBtn').disabled = true;
+
+  document.getElementById('progressWrap').style.display = 'block';
+  document.getElementById('summaryCards').style.display = 'none';
+  document.getElementById('resultsSection').style.display = 'none';
+  document.getElementById('exportBtn').style.display = 'none';
+
+  const fill = document.getElementById('progressFill');
+  const lbl  = document.getElementById('progressLbl');
+  document.getElementById('progressTitle').textContent = `Scanning ${urls.length} product${urls.length>1?'s':''}…`;
+  lbl.textContent = 'Please wait — checking each product page…';
+
+  let prog = 0;
+  const ticker = setInterval(() => { prog = Math.min(prog+1, 88); fill.style.width = prog+'%'; }, 500);
+
+  try {
+    const resp = await fetch('/scan', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ urls: urls.join('\n') })
+    });
+    const data = await resp.json();
+    clearInterval(ticker); fill.style.width = '100%';
+    if (data.error) { alert(data.error); return; }
+
+    allResults = data.results;
+    renderSummary(data.summary);
+    renderTable('all');
+
+    document.getElementById('progressWrap').style.display = 'none';
+    document.getElementById('summaryCards').style.display = 'grid';
+    document.getElementById('resultsSection').style.display = 'block';
+    document.getElementById('exportBtn').style.display = 'inline-flex';
+  } catch(e) {
+    clearInterval(ticker); alert('Scan failed: ' + e.message);
+  } finally {
+    document.getElementById('scanBtn').disabled = false;
+    document.getElementById('manualScanBtn').disabled = false;
+  }
+}
+
+// ── Render helpers ────────────────────────────────────────────────────────────
+function renderSummary(s) {
+  document.getElementById('sTotal').textContent          = s.total;
+  document.getElementById('sOk').textContent             = s.ok;
+  document.getElementById('sIssues').textContent         = s.issues;
+  document.getElementById('sErrors').textContent         = s.errors;
+  document.getElementById('sMissingPrice').textContent   = s.missing_price;
+  document.getElementById('sMissingSalePrice').textContent = s.missing_sale_price;
+  document.getElementById('sMissingOrigPrice').textContent = s.missing_orig_price;
+  document.getElementById('sMissingImg').textContent     = s.missing_images;
+  document.getElementById('sBrokenImg').textContent      = s.broken_images;
+  document.getElementById('sMissingDesc').textContent    = s.missing_desc;
+}
+
+function setFilter(f, btn) {
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderTable(f);
+}
+
+function renderTable(filter) {
+  let rows = allResults;
+  if (filter==='issues')         rows = rows.filter(r=>r.status==='issues');
+  else if (filter==='ok')        rows = rows.filter(r=>r.status==='ok');
+  else if (filter==='error')     rows = rows.filter(r=>r.status==='error');
+  else if (filter==='missing_price')  rows = rows.filter(r=>r.issues.includes('Missing price'));
+  else if (filter==='missing_sale')   rows = rows.filter(r=>r.issues.includes('Missing sale price'));
+  else if (filter==='missing_orig')   rows = rows.filter(r=>r.issues.includes('Missing original price'));
+  else if (filter==='missing_images') rows = rows.filter(r=>r.issues.includes('No images found'));
+  else if (filter==='broken_images')  rows = rows.filter(r=>r.issues.some(i=>i.includes('broken image')));
+
+  const tbody = document.getElementById('resultsBody');
+  const empty = document.getElementById('emptyState');
+  if (!rows.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display='none';
+
+  tbody.innerHTML = rows.map((r,i) => {
+    const statusBadge = r.status==='ok'
+      ? `<span class="badge badge-ok">✓ Healthy</span>`
+      : r.status==='error'
+      ? `<span class="badge badge-error">✗ Error</span>`
+      : `<span class="badge badge-issues">⚠ Issues</span>`;
+
+    const issueTags = r.issues.length
+      ? r.issues.map(x=>`<span class="issue-tag">${esc(x)}</span>`).join('')
+      : '<span style="color:var(--green);font-size:11px">—</span>';
+
+    const imgCell = r.image_count > 0
+      ? `<span class="img-dot" style="background:var(--green)"></span>${r.image_count}`
+      : `<span class="img-dot" style="background:var(--red)"></span>0`;
+
+    const salePrice = r.sale_price
+      ? `<span style="color:var(--green);font-weight:600">${esc(r.sale_price)} AED</span>`
+      : `<span style="color:var(--red)">—</span>`;
+
+    const origPrice = r.original_price
+      ? `<span style="color:var(--muted);text-decoration:line-through">${esc(r.original_price)} AED</span>`
+      : `<span style="color:var(--muted)">—</span>`;
+
+    const saving = r.saving
+      ? `<span style="color:var(--yellow);font-size:10px">${esc(r.saving)}</span>`
+      : `<span style="color:var(--muted)">—</span>`;
+
+    const title = r.title
+      ? `<span title="${esc(r.title)}" style="max-width:170px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.title)}</span>`
+      : `<span style="color:var(--muted)">—</span>`;
+
+    return `<tr>
+      <td style="color:var(--muted);font-size:11px">${i+1}</td>
+      <td class="url-cell"><a href="${esc(r.url)}" target="_blank">${esc(r.url)}</a></td>
+      <td>${title}</td>
+      <td>${salePrice}</td>
+      <td>${origPrice}</td>
+      <td>${saving}</td>
+      <td>${imgCell}</td>
+      <td>${issueTags}</td>
+      <td>${statusBadge}</td>
+    </tr>`;
+  }).join('');
+}
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function exportCSV() {
+  const resp = await fetch('/export-csv', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ results: allResults })
+  });
+  const blob = await resp.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `product_health_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+</script>
+</body>
+</html>
