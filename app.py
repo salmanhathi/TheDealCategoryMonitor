@@ -93,7 +93,7 @@ def crawl_category(category_url, page_size=48, max_pages=50):
             if r.status_code != 200:
                 logs.append(f"    → HTTP {r.status_code}, stopping.")
                 break
-            soup  = BeautifulSoup(r.text, 'html.parser')
+            soup  = BeautifulSoup(r.text, 'lxml')
             found = extract_product_links(soup, page_url, base_domain)
             new   = found - all_products
             logs.append(f"    → {len(found)} links found, {len(new)} new")
@@ -314,7 +314,7 @@ def analyse_url(url):
             result["status"] = "error"
             return result
 
-        soup = BeautifulSoup(r.text, 'html.parser')
+        soup = BeautifulSoup(r.text, 'lxml')
         result["title"]       = extract_title(soup)
         result["description"] = extract_description(soup)
         result["images"]      = extract_images(soup, url)
