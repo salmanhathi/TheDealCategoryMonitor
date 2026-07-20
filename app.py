@@ -3,7 +3,7 @@ sys.setrecursionlimit(10000)
 
 from flask import Flask, render_template, request, jsonify, Response
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, SoupStrainer
 import csv, io, re, time, json, threading, uuid
 from urllib.parse import urlparse, urljoin, urlunparse, parse_qs, urlencode, urldefrag
 from datetime import datetime
@@ -96,7 +96,8 @@ def crawl_category(category_url, page_size=48, max_pages=50):
             if r.status_code != 200:
                 logs.append(f"    → HTTP {r.status_code}, stopping.")
                 break
-            soup  = BeautifulSoup(r.text, 'lxml')
+            only_links = SoupStrainer('a')
+            soup  = BeautifulSoup(r.text, 'html.parser', parse_only=only_links)
             found = extract_product_links(soup, page_url, base_domain)
             new   = found - all_products
             logs.append(f"    → {len(found)} links found, {len(new)} new")
@@ -317,7 +318,7 @@ def analyse_url(url):
             result["status"] = "error"
             return result
 
-        soup = BeautifulSoup(r.text, 'lxml')
+        soup = BeautifulSoup(r.text, 'html.parser')
         result["title"]       = extract_title(soup)
         result["description"] = extract_description(soup)
         result["images"]      = extract_images(soup, url)
