@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, jsonify, Response
+sys.setrecursionlimit(10000)
 import requests
 from bs4 import BeautifulSoup
 import csv, io, re, time, json, threading, uuid
