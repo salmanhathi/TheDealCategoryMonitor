@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, jsonify, Response
-sys.setrecursionlimit(10000)
+import sys
 import requests
 from bs4 import BeautifulSoup
 import csv, io, re, time, json, threading, uuid
@@ -8,6 +8,7 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+sys.setrecursionlimit(10000)
 
 app = Flask(__name__)
 
