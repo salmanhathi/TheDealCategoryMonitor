@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify, Response
 import requests
 from bs4 import BeautifulSoup
-import csv, io, re, time, json
+import csv, io, re, time, json, threading, uuid
 from urllib.parse import urlparse, urljoin, urlunparse, parse_qs, urlencode, urldefrag
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -20,24 +20,37 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-SCAN_WORKERS   = 10   # parallel product scans
-CRAWL_DELAY    = 0.2  # seconds between category page fetches
+SCAN_WORKERS = 15
+CRAWL_DELAY  = 0.2
+MAX_PRODUCTS = 5000
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CATEGORY CRAWLER
 # ─────────────────────────────────────────────────────────────────────────────
+
+BLOCKED_SLUGS = [
+    'about-us', 'faq', 'privacy', 'privacy-policy', 'terms-conditions',
+    'return-refunds', 'order-shipping', 'contact', 'careers', 'stores',
+    'accessibility', 'sitemap', 'gift-card',
+]
 
 def is_product_url(url, base_domain):
     parsed = urlparse(url)
     if parsed.netloc and parsed.netloc != base_domain:
         return False
     path = parsed.path.lower()
+
+    if any(s in path for s in BLOCKED_SLUGS):
+        return False
+
+    # TDO: numeric barcode filename of any length (6+ digits)
+    if re.search(r'/\d{6,}\.html$', path):
+        return True
+
     product_hints = ['/p/', '/product/', '/products/', '/item/', '/pd/']
     if any(h in path for h in product_hints):
         return True
-    category_hints = ['/c/', '/category/', '/search', '/s/', 'cgid=', '/new-in', '/women', '/men', '/kids']
-    if path.endswith('.html') and not any(h in url for h in category_hints):
-        return True
+
     return False
 
 
@@ -54,7 +67,7 @@ def extract_product_links(soup, base_url, base_domain):
     return links
 
 
-def crawl_category(category_url, page_size=48, max_pages=20):
+def crawl_category(category_url, page_size=48, max_pages=50):
     parsed      = urlparse(category_url)
     base_domain = parsed.netloc
     qs = parse_qs(parsed.query, keep_blank_values=True)
@@ -72,52 +85,59 @@ def crawl_category(category_url, page_size=48, max_pages=20):
 
     for page_num in range(max_pages):
         qs['start'] = [str(start)]
-        paged_qs  = urlencode({k: v[0] for k, v in qs.items()})
-        page_url  = urlunparse(parsed._replace(query=paged_qs))
-        logs.append(f"Fetching page {page_num + 1}: {page_url}")
+        paged_qs = urlencode({k: v[0] for k, v in qs.items()})
+        page_url = urlunparse(parsed._replace(query=paged_qs))
+        logs.append(f"  Page {page_num + 1}: {page_url}")
         try:
             r = requests.get(page_url, headers=HEADERS, timeout=15, verify=False)
             if r.status_code != 200:
-                logs.append(f"  → HTTP {r.status_code}, stopping.")
+                logs.append(f"    → HTTP {r.status_code}, stopping.")
                 break
             soup  = BeautifulSoup(r.text, 'html.parser')
             found = extract_product_links(soup, page_url, base_domain)
             new   = found - all_products
-            logs.append(f"  → Found {len(found)} links ({len(new)} new)")
+            logs.append(f"    → {len(found)} links found, {len(new)} new")
             if not new:
-                logs.append("  → No new products — pagination complete.")
+                logs.append("    → No new products — pagination complete.")
                 break
             all_products.update(new)
             start += page_size
             time.sleep(CRAWL_DELAY)
         except Exception as e:
-            logs.append(f"  → Error: {e}")
+            logs.append(f"    → Error: {e}")
             break
 
     return sorted(all_products), logs
 
 
+def crawl_multiple_categories(cat_urls, page_size=48, max_pages=50):
+    all_products = set()
+    all_logs = []
+    for cat_url in cat_urls:
+        if not cat_url.startswith('http'):
+            cat_url = 'https://' + cat_url
+        all_logs.append(f"═══ Crawling: {cat_url}")
+        urls, logs = crawl_category(cat_url, page_size, max_pages)
+        new = set(urls) - all_products
+        all_products.update(new)
+        all_logs.extend(logs)
+        all_logs.append(f"  +{len(new)} new products | {len(all_products)} total so far")
+        if len(all_products) >= MAX_PRODUCTS:
+            all_logs.append(f"  Cap of {MAX_PRODUCTS} reached, stopping.")
+            break
+    return sorted(all_products), all_logs
+
+
 # ─────────────────────────────────────────────────────────────────────────────
-# EXTRACTORS  —  tuned for thedealoutlet.com SFCC structure
+# EXTRACTORS — tuned for thedealoutlet.com SFCC
 # ─────────────────────────────────────────────────────────────────────────────
 
 def extract_prices(soup):
-    """
-    Returns dict: { sale_price, original_price, saving, has_sale }
-    Targets TDO structure:
-      Sale:     h2.sales span.value[content]
-      Original: span.strike-through.list span.value[content]
-      Saving:   .wis_fiyatfark
-    Falls back to generic selectors for other sites.
-    """
     result = {
-        "sale_price":     None,
-        "original_price": None,
-        "saving":         None,
-        "has_sale":       False,
+        "sale_price": None, "original_price": None,
+        "saving": None, "has_sale": False,
     }
 
-    # ── TDO / SFCC specific ──────────────────────────────────────────────────
     sale_el = soup.select_one('h2.sales span.value, .sales span.value')
     if sale_el:
         result["sale_price"] = sale_el.get('content') or re.sub(r'[^\d.]', '', sale_el.get_text())
@@ -134,7 +154,6 @@ def extract_prices(soup):
         result["has_sale"] = True
         return result
 
-    # ── Generic fallbacks ────────────────────────────────────────────────────
     if not result["sale_price"]:
         for sel in ['[itemprop="price"]', '.price-sales', '.special-price .price',
                     'meta[property="product:price:amount"]']:
@@ -146,8 +165,7 @@ def extract_prices(soup):
                     break
 
     if not result["original_price"]:
-        for sel in ['.price-was', '.regular-price .price', '.old-price .price',
-                    '.price__compare']:
+        for sel in ['.price-was', '.regular-price .price', '.old-price .price', '.price__compare']:
             el = soup.select_one(sel)
             if el:
                 v = re.sub(r'[^\d.]', '', el.get_text())
@@ -155,7 +173,6 @@ def extract_prices(soup):
                     result["original_price"] = v
                     break
 
-    # JSON-LD last resort
     if not result["sale_price"]:
         for script in soup.find_all('script', type='application/ld+json'):
             try:
@@ -175,23 +192,12 @@ def extract_prices(soup):
 
 
 def extract_images(soup, base_url):
-    """
-    Priority order:
-    1. TDO/SFCC product image containers (desktop + mobile)
-    2. og:image meta
-    3. schema.org itemprop=image
-    4. Common CMS class names
-    Filters out SVGs, data URIs, and TDO's 'noimagelarge.png' placeholder.
-    """
     images = []
     seen   = set()
 
-    # TDO SFCC serves this when no product image exists — treat as missing
     PLACEHOLDER_SIGNALS = [
-        'noimagelarge',
-        'noimage',
-        'no_image',
-        '/default/dw58870029/',   # TDO's specific no-image asset hash
+        'noimagelarge', 'noimage', 'no_image',
+        '/default/dw58870029/',
         'blank.gif', '1x1', 'pixel',
     ]
 
@@ -200,24 +206,20 @@ def extract_images(soup, base_url):
         title = (tag.get('title') or '').strip().lower()
         if alt in ('no image', 'noimage') or title in ('no image', 'noimage'):
             return True
-        low = src.lower()
-        return any(p in low for p in PLACEHOLDER_SIGNALS)
+        return any(p in src.lower() for p in PLACEHOLDER_SIGNALS)
 
     def add(tag, src=None):
         if tag is None:
-            # called with just a URL string (og:image)
             if not src:
                 return
             full = urljoin(base_url, src.strip())
             if full in seen:
                 return
-            low = full.lower()
-            if any(x in low for x in ['data:', '.svg'] + PLACEHOLDER_SIGNALS):
+            if any(x in full.lower() for x in ['data:', '.svg'] + PLACEHOLDER_SIGNALS):
                 return
             seen.add(full)
             images.append(full)
             return
-
         raw = (tag.get('src') or tag.get('data-src') or tag.get('data-zoom-image')
                or tag.get('data-lazy') or tag.get('data-original') or tag.get('content') or '')
         if not raw:
@@ -225,41 +227,30 @@ def extract_images(soup, base_url):
         full = urljoin(base_url, raw.strip())
         if full in seen:
             return
-        low = full.lower()
-        if any(x in low for x in ['data:', '.svg']):
+        if any(x in full.lower() for x in ['data:', '.svg']):
             return
         if is_placeholder(tag, full):
             return
         seen.add(full)
         images.append(full)
 
-    # TDO desktop: most reliable — real images only, no carousel clones
     for tag in soup.select('.product-images-desktop img, .js-img-parent-div img'):
         add(tag)
 
-    # TDO/SFCC generic containers
-    for sel in [
-        '.primary-images img',
-        '.pdp-images img',
-        '.image-container img',
-        '[data-image-role="product"]',
-        '.product-gallery img',
-    ]:
+    for sel in ['.primary-images img', '.pdp-images img', '.image-container img',
+                '[data-image-role="product"]', '.product-gallery img']:
         for tag in soup.select(sel):
             add(tag)
 
-    # og:image — skip if it's also a placeholder URL
     og = soup.find('meta', property='og:image')
     if og and og.get('content'):
         src = og['content']
         if not any(p in src.lower() for p in PLACEHOLDER_SIGNALS):
             add(None, src)
 
-    # schema.org itemprop=image (TDO uses this too, but slick clones duplicates — deduped by seen set)
     for el in soup.select('[itemprop="image"]'):
         add(el)
 
-    # generic fallbacks
     for sel in ['.carousel img', '.slick-slide img', '.swiper-slide img']:
         for tag in soup.select(sel):
             add(tag)
@@ -324,26 +315,21 @@ def analyse_url(url):
             return result
 
         soup = BeautifulSoup(r.text, 'html.parser')
-
         result["title"]       = extract_title(soup)
         result["description"] = extract_description(soup)
         result["images"]      = extract_images(soup, url)
         result["image_count"] = len(result["images"])
-
         prices = extract_prices(soup)
         result.update(prices)
 
-        # ── Issue checks ──────────────────────────────────────────────────────
         if not result["title"]:
             result["issues"].append("Missing title")
-
         if not result["sale_price"] and not result["original_price"]:
             result["issues"].append("Missing price")
         elif not result["sale_price"]:
             result["issues"].append("Missing sale price")
         elif not result["original_price"]:
             result["issues"].append("Missing original price")
-
         if result["image_count"] == 0:
             result["issues"].append("No images found")
         else:
@@ -351,7 +337,6 @@ def analyse_url(url):
             result["broken_images"] = broken
             if broken:
                 result["issues"].append(f"{len(broken)} broken image(s)")
-
         if not result["description"]:
             result["issues"].append("Missing description")
 
@@ -393,41 +378,52 @@ def index():
 
 @app.route('/discover', methods=['POST'])
 def discover():
-    data         = request.get_json()
-    category_url = (data.get('category_url') or '').strip()
-    if not category_url:
-        return jsonify({"error": "No category URL provided"}), 400
-    if not category_url.startswith('http'):
-        category_url = 'https://' + category_url
+    data      = request.get_json()
+    raw_urls  = (data.get('category_urls') or data.get('category_url') or '')
     page_size = int(data.get('page_size', 48))
-    max_pages = int(data.get('max_pages', 20))
-    product_urls, logs = crawl_category(category_url, page_size, max_pages)
+    cat_urls  = [u.strip() for u in raw_urls.splitlines() if u.strip()]
+    if not cat_urls:
+        return jsonify({"error": "No category URLs provided"}), 400
+    product_urls, logs = crawl_multiple_categories(cat_urls, page_size)
     return jsonify({"product_urls": product_urls, "logs": logs, "count": len(product_urls)})
 
 
-@app.route('/scan', methods=['POST'])
-def scan():
+# Job store for streaming scan
+_scan_jobs = {}
+
+@app.route('/scan-prepare', methods=['POST'])
+def scan_prepare():
     data = request.get_json()
     urls = [u.strip() for u in (data.get('urls') or '').splitlines() if u.strip()]
     if not urls:
         return jsonify({"error": "No URLs provided"}), 400
-    if len(urls) > 5000:
-        return jsonify({"error": "Max 5000 URLs per scan"}), 400
+    if len(urls) > MAX_PRODUCTS:
+        return jsonify({"error": f"Max {MAX_PRODUCTS} URLs per scan"}), 400
+    job_id = str(uuid.uuid4())
+    _scan_jobs[job_id] = urls
+    return jsonify({"job_id": job_id, "count": len(urls)})
 
-    results = [None] * len(urls)
 
-    def worker(idx, url):
-        if not url.startswith('http'):
-            url = 'https://' + url
-        return idx, analyse_url(url)
+@app.route('/scan-stream', methods=['GET'])
+def scan_stream():
+    job_id = request.args.get('job_id')
+    if not job_id or job_id not in _scan_jobs:
+        return Response('data: {"error": "Invalid job"}\n\n', mimetype='text/event-stream')
+    urls = _scan_jobs.pop(job_id)
 
-    with ThreadPoolExecutor(max_workers=SCAN_WORKERS) as ex:
-        futures = {ex.submit(worker, i, u): i for i, u in enumerate(urls)}
-        for future in as_completed(futures):
-            idx, res = future.result()
-            results[idx] = res
+    def generate():
+        completed = []
+        with ThreadPoolExecutor(max_workers=SCAN_WORKERS) as ex:
+            futures = {ex.submit(analyse_url, u): u for u in urls}
+            for future in as_completed(futures):
+                result = future.result()
+                completed.append(result)
+                yield f"data: {json.dumps({'type': 'result', 'data': result})}\n\n"
+        summary = build_summary(completed)
+        yield f"data: {json.dumps({'type': 'done', 'summary': summary})}\n\n"
 
-    return jsonify({"results": results, "summary": build_summary(results)})
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'})
 
 
 @app.route('/export-csv', methods=['POST'])
